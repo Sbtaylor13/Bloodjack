@@ -1526,6 +1526,8 @@ MonoBehaviour:
   blackjackCanvasRoot: {fileID: 0}
   inlineGame: {fileID: 0}
   inlineUI: {fileID: 0}
+  playerObject: {fileID: 1441404880}
+  playerHUD: {fileID: 695722544}
   interactRadius: 2
   interactKey: 101
   interactPromptUI: {fileID: 279987854}
@@ -1930,6 +1932,11 @@ PrefabInstance:
 --- !u!4 &1441404879 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 4135013735270702856, guid: c5efc39a8aaf6e64ea40e9ad573e9b47, type: 3}
+  m_PrefabInstance: {fileID: 1441404878}
+  m_PrefabAsset: {fileID: 0}
+--- !u!1 &1441404880 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 8616685848737228372, guid: c5efc39a8aaf6e64ea40e9ad573e9b47, type: 3}
   m_PrefabInstance: {fileID: 1441404878}
   m_PrefabAsset: {fileID: 0}
 --- !u!1 &1497839347
@@ -2554,6 +2561,10 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 9005220659476430818, guid: 2d3a85ecde41a8246a79669975912b74, type: 3}
       propertyPath: m_LocalEulerAnglesHint.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 9005220659476430821, guid: 2d3a85ecde41a8246a79669975912b74, type: 3}
+      propertyPath: m_Depth
       value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 9005220659476430821, guid: 2d3a85ecde41a8246a79669975912b74, type: 3}

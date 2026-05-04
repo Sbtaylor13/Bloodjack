@@ -1,12 +1,7 @@
-using System.Collections;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
-/// <summary>
-/// Drives the 2D HUD: chips, bet, score labels, action buttons, result banner.
-/// Wire up all references in the Inspector.
-/// </summary>
 public class BlackjackUI : MonoBehaviour
 {
     [Header("Info Labels")]
@@ -37,8 +32,6 @@ public class BlackjackUI : MonoBehaviour
     public Button nextRoundButton;
     public Button leaveTableButton;
 
-    // ─────────────────────────────────────────────────────────────────────────
-
     private BlackjackGame _game;
     private int _pendingBet;
 
@@ -47,56 +40,73 @@ public class BlackjackUI : MonoBehaviour
         _game = game;
         _pendingBet = game.minBet;
 
-        // Wire game events
-        game.OnStateChanged  += HandleStateChange;
-        game.OnGameOver      += HandleGameOver;
-        game.OnCardDealt     += (_, isPlayer) => RefreshScores();
+        game.OnStateChanged += HandleStateChange;
+        game.OnGameOver += HandleGameOver;
+        game.OnCardDealt += (_, __) => RefreshScores();
 
-        // Wire betting buttons
         betPlusButton?.onClick.AddListener(() => AdjustBet(+game.minBet));
         betMinusButton?.onClick.AddListener(() => AdjustBet(-game.minBet));
         dealButton?.onClick.AddListener(OnDealClicked);
 
-        // Wire action buttons
         hitButton?.onClick.AddListener(game.Hit);
         standButton?.onClick.AddListener(game.Stand);
-        doubleButton?.onClick.AddListener(game.DoubleDown);
+        doubleButton?.onClick.AddListener(() => {
+            game.DoubleDown();
+            RefreshBetDisplay();
+            RefreshChips();
+        });
 
-        // Wire post-round
         nextRoundButton?.onClick.AddListener(OnNextRoundClicked);
         leaveTableButton?.onClick.AddListener(OnLeaveClicked);
 
-        ShowBettingPanel();
+        ShowOnly(bettingPanel);
+        RefreshBetDisplay();
         RefreshChips();
     }
-
+    void Start()
+    {
+        if (_game != null)
+        {
+            RefreshChips();
+            RefreshBetDisplay();
+            RefreshScores();
+        }
+    }
     void OnDestroy()
     {
         if (_game == null) return;
         _game.OnStateChanged -= HandleStateChange;
-        _game.OnGameOver     -= HandleGameOver;
+        _game.OnGameOver -= HandleGameOver;
     }
 
-    // ── Event Handlers ────────────────────────────────────────────────────────
+    // ── State Handling ────────────────────────────────────────────────────────
 
     void HandleStateChange(BlackjackGame.GameState state)
     {
         switch (state)
         {
-            case BlackjackGame.GameState.PlayerTurn:
-                bettingPanel?.SetActive(false);
+            case BlackjackGame.GameState.Dealing:
+                // Hide everything while cards are being dealt
+                ShowOnly(null);
                 resultBanner?.SetActive(false);
-                actionPanel?.SetActive(true);
-                postRoundPanel?.SetActive(false);
+                break;
+
+            case BlackjackGame.GameState.PlayerTurn:
+                // All 4 cards are dealt — now show action buttons
+                ShowOnly(actionPanel);
                 RefreshActionButtons();
                 break;
 
             case BlackjackGame.GameState.DealerTurn:
-                actionPanel?.SetActive(false);
+                // Hide action buttons while dealer plays
+                ShowOnly(null);
                 break;
 
             case BlackjackGame.GameState.Idle:
-                ShowBettingPanel();
+                ShowOnly(bettingPanel);
+                resultBanner?.SetActive(false);
+                RefreshBetDisplay();
+                RefreshChips();
                 break;
         }
         RefreshScores();
@@ -104,68 +114,80 @@ public class BlackjackUI : MonoBehaviour
 
     void HandleGameOver(BlackjackGame.GameResult result, int payout)
     {
-        actionPanel?.SetActive(false);
-        postRoundPanel?.SetActive(true);
-
-        string msg = result switch
-        {
-            BlackjackGame.GameResult.PlayerBlackjack => "✦ BLACKJACK! ✦",
-            BlackjackGame.GameResult.PlayerWin        => "You Win!",
-            BlackjackGame.GameResult.DealerBust       => "Dealer Busts — You Win!",
-            BlackjackGame.GameResult.Push             => "Push — Bet Returned",
-            BlackjackGame.GameResult.PlayerBust       => "Bust!",
-            BlackjackGame.GameResult.DealerWin        => "Dealer Wins",
-            _                                         => ""
-        };
-
-        if (resultText != null) resultText.text = msg;
+        ShowOnly(postRoundPanel);
         resultBanner?.SetActive(true);
+
+        if (resultText != null)
+        {
+            resultText.text = result switch
+            {
+                BlackjackGame.GameResult.PlayerBlackjack => "✦ BLACKJACK! ✦",
+                BlackjackGame.GameResult.PlayerWin => "You Win!",
+                BlackjackGame.GameResult.DealerBust => "Dealer Busts — You Win!",
+                BlackjackGame.GameResult.Push => "Push — Bet Returned",
+                BlackjackGame.GameResult.PlayerBust => "Bust!",
+                BlackjackGame.GameResult.DealerWin => "Dealer Wins",
+                _ => ""
+            };
+        }
+
         RefreshChips();
         RefreshScores();
+    }
+
+    // ── Panel Control ─────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Shows exactly one panel, hides all others.
+    /// Pass null to hide everything (e.g. during dealing or dealer turn).
+    /// Result banner is intentionally NOT controlled here.
+    /// </summary>
+    void ShowOnly(GameObject panel)
+    {
+        bettingPanel?.SetActive(bettingPanel == panel);
+        actionPanel?.SetActive(actionPanel == panel);
+        postRoundPanel?.SetActive(postRoundPanel == panel);
     }
 
     // ── Betting ───────────────────────────────────────────────────────────────
 
     void AdjustBet(int delta)
     {
-        _pendingBet = Mathf.Clamp(_pendingBet + delta, _game.minBet,
-            Mathf.Min(_game.maxBet, _game.PlayerChips));
+        _pendingBet = Mathf.Clamp(
+            _pendingBet + delta,
+            _game.minBet,
+            Mathf.Min(_game.maxBet, _game.PlayerChips)
+        );
         RefreshBetDisplay();
     }
 
     void OnDealClicked()
     {
+        _game.dealer?.ClearTable();
         _game.PlaceBet(_pendingBet);
         _game.StartRound();
-        _game.dealer?.ClearTable();
+        RefreshBetDisplay(); // add this line
+        RefreshChips();      // and this — chips deducted on deal
     }
 
     void OnNextRoundClicked()
     {
-        postRoundPanel?.SetActive(false);
+        _game.dealer?.ClearTable();
+        _game.ExitTable();
+        _pendingBet = Mathf.Clamp(_pendingBet, _game.minBet, _game.PlayerChips);
+        ShowOnly(bettingPanel);
         resultBanner?.SetActive(false);
-        _pendingBet = Mathf.Min(_pendingBet, _game.PlayerChips); // clamp if low on chips
-        ShowBettingPanel();
+        RefreshBetDisplay();
+        RefreshChips();
     }
 
     void OnLeaveClicked()
     {
         _game.ExitTable();
-        // Raise event or call your scene manager to return to the 3D room
-        // E.g.: SceneManager.LoadScene("MainRoom");
-        Debug.Log("[BlackjackUI] Player left the table.");
+        DeskInteractable.OnLeaveTable?.Invoke();
     }
 
-    // ── Display Helpers ───────────────────────────────────────────────────────
-
-    void ShowBettingPanel()
-    {
-        bettingPanel?.SetActive(true);
-        actionPanel?.SetActive(false);
-        postRoundPanel?.SetActive(false);
-        RefreshBetDisplay();
-        RefreshChips();
-    }
+    // ── Display ───────────────────────────────────────────────────────────────
 
     void RefreshBetDisplay()
     {
@@ -183,27 +205,21 @@ public class BlackjackUI : MonoBehaviour
     {
         if (_game == null) return;
 
-        int pVal = BlackjackGame.HandValue(_game.PlayerHand);
         if (playerScoreLabel != null)
-            playerScoreLabel.text = _game.PlayerHand.Count > 0 ? pVal.ToString() : "";
+            playerScoreLabel.text = _game.PlayerHand.Count > 0
+                ? BlackjackGame.HandValue(_game.PlayerHand).ToString()
+                : "";
 
-        // Dealer: only show first card's value until dealer turn
         if (dealerScoreLabel != null)
         {
             if (_game.DealerHand.Count == 0)
-            {
                 dealerScoreLabel.text = "";
-            }
-            else if (_game.State == BlackjackGame.GameState.PlayerTurn)
-            {
-                // Show only the value of the face-up card
-                var faceUp = _game.DealerHand[0];
-                dealerScoreLabel.text = faceUp.BlackjackValue.ToString();
-            }
+            else if (_game.State == BlackjackGame.GameState.PlayerTurn ||
+                     _game.State == BlackjackGame.GameState.Dealing)
+                // Only show the face-up card value while hole card is hidden
+                dealerScoreLabel.text = _game.DealerHand[0].BlackjackValue.ToString();
             else
-            {
                 dealerScoreLabel.text = BlackjackGame.HandValue(_game.DealerHand).ToString();
-            }
         }
     }
 
@@ -214,11 +230,5 @@ public class BlackjackUI : MonoBehaviour
         if (doubleButton != null) doubleButton.interactable = canDouble;
     }
 
-    public void HideAll()
-    {
-        bettingPanel?.SetActive(false);
-        actionPanel?.SetActive(false);
-        postRoundPanel?.SetActive(false);
-        resultBanner?.SetActive(false);
-    }
+    public void HideAll() => ShowOnly(null);
 }

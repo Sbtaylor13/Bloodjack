@@ -2,63 +2,61 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
-/// <summary>
-/// Spawns and animates card GameObjects in the 2D subscene.
-/// Attach to the Dealer root object.
-/// </summary>
 public class BlackjackDealer : MonoBehaviour
 {
     [Header("Prefab & Library")]
-    [Tooltip("A simple SpriteRenderer prefab for a single card")]
     public GameObject cardPrefab;
     public CardSpriteLibrary spriteLibrary;
 
     [Header("Layout")]
-    [Tooltip("Where dealer cards anchor (top centre of play area)")]
     public Transform dealerCardOrigin;
-    [Tooltip("Where player cards anchor (bottom centre of play area)")]
     public Transform playerCardOrigin;
-    [Tooltip("Horizontal spacing between cards")]
-    public float cardSpacing = 1.1f;
+    public float cardSpacing = 6.1f;
 
     [Header("Deal Animation")]
     public float dealDuration = 0.25f;
-    [Tooltip("Cards fly in from this off-screen position")]
     public Transform deckPosition;
 
-    // Track spawned card objects so we can clean them up
-    private List<GameObject> _spawnedCards = new();
+    // Separate lists per hand so recentering is always accurate
+    private List<GameObject> _playerCards = new();
+    private List<GameObject> _dealerCards = new();
+
+    void Start()
+    {
+        if (spriteLibrary == null)
+            Debug.LogError("[BlackjackDealer] spriteLibrary is not assigned!");
+        else
+            Debug.Log($"[BlackjackDealer] Library loaded: {spriteLibrary.CardFaces.Count} sprites.");
+    }
 
     // ── Public API ────────────────────────────────────────────────────────────
 
-    /// <summary>Called by BlackjackGame when a card is dealt.</summary>
     public void AnimateDeal(Card card, bool isPlayer, int slotIndex)
     {
-        if (cardPrefab == null) return;
+        if (cardPrefab == null) { Debug.LogError("cardPrefab is null!"); return; }
 
         Transform origin = isPlayer ? playerCardOrigin : dealerCardOrigin;
-        Vector3 targetPos = origin.position + Vector3.right * (slotIndex - 1.5f) * cardSpacing;
+        if (origin == null) { Debug.LogError($"Origin is null! isPlayer:{isPlayer}"); return; }
 
-        GameObject go = Instantiate(cardPrefab, deckPosition ? deckPosition.position : targetPos + Vector3.up * 5f, Quaternion.identity);
+        GameObject go = Instantiate(cardPrefab, GetStartPos(), Quaternion.identity);
         go.transform.SetParent(transform);
+        go.name = card.IsFaceUp ? card.SpriteName : "HoleCard";
 
         var sr = go.GetComponent<SpriteRenderer>();
         if (sr != null && spriteLibrary != null)
             sr.sprite = spriteLibrary.GetSprite(card);
 
-        // Tag the GO so we can swap sprite when hole card flips
-        go.name = card.SpriteName;
+        // Add to the correct hand list
+        if (isPlayer) _playerCards.Add(go);
+        else _dealerCards.Add(go);
 
-        _spawnedCards.Add(go);
-        StartCoroutine(MoveCard(go.transform, targetPos, dealDuration));
+        // Recenter the whole hand now that a new card was added
+        RecenterHand(isPlayer);
     }
 
-    /// <summary>Call when the hole card is revealed to flip its sprite.</summary>
     public void RevealHoleCard(Card holeCard)
     {
-        // Hole card is always dealer's second card GO (index 1 among dealer children)
-        // We stored them in order, so find it by name (it was named "CardBack" equivalent)
-        foreach (var go in _spawnedCards)
+        foreach (var go in _dealerCards)
         {
             if (go == null) continue;
             var sr = go.GetComponent<SpriteRenderer>();
@@ -72,52 +70,91 @@ public class BlackjackDealer : MonoBehaviour
         }
     }
 
-    /// <summary>Destroy all card GameObjects. Call between rounds.</summary>
     public void ClearTable()
     {
-        foreach (var go in _spawnedCards)
+        StopAllCoroutines();
+        var all = new List<GameObject>(_playerCards);
+        all.AddRange(_dealerCards);
+        foreach (var go in all)
             if (go != null) Destroy(go);
-        _spawnedCards.Clear();
+        _playerCards.Clear();
+        _dealerCards.Clear();
+    }
+
+    // ── Layout ────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Repositions all cards in a hand so they are always centered on their origin.
+    /// Called every time a new card is added.
+    /// </summary>
+    void RecenterHand(bool isPlayer)
+    {
+        List<GameObject> hand = isPlayer ? _playerCards : _dealerCards;
+        Transform origin = isPlayer ? playerCardOrigin : dealerCardOrigin;
+
+        int count = hand.Count;
+        if (count == 0) return;
+
+        // Total width spans between first and last card center
+        float totalWidth = (count - 1) * cardSpacing;
+        float leftEdge = origin.position.x - totalWidth / 2f;
+
+        for (int i = 0; i < count; i++)
+        {
+            if (hand[i] == null) continue;
+            Vector3 target = new Vector3(
+                leftEdge + i * cardSpacing,
+                origin.position.y,
+                -1f
+            );
+            StartCoroutine(MoveCard(hand[i].transform, target, dealDuration));
+        }
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    Vector3 GetStartPos()
+    {
+        if (deckPosition != null)
+            return new Vector3(deckPosition.position.x, deckPosition.position.y, -1f);
+        return new Vector3(10f, 5f, -1f);
     }
 
     // ── Animations ────────────────────────────────────────────────────────────
 
     IEnumerator MoveCard(Transform t, Vector3 target, float duration)
     {
+        if (t == null) yield break;
         Vector3 start = t.position;
         float elapsed = 0f;
         while (elapsed < duration)
         {
+            if (t == null) yield break;
             elapsed += Time.deltaTime;
             t.position = Vector3.Lerp(start, target, elapsed / duration);
             yield return null;
         }
-        t.position = target;
+        if (t != null) t.position = target;
     }
 
     IEnumerator FlipCard(GameObject go)
     {
-        // Quick scale-X flip tween
         float half = 0.1f;
         var t = go.transform;
         float elapsed = 0f;
 
-        // Squish to 0 on X
         while (elapsed < half)
         {
             elapsed += Time.deltaTime;
-            float s = 1f - (elapsed / half);
-            t.localScale = new Vector3(s, 1f, 1f);
+            t.localScale = new Vector3(1f - (elapsed / half), 1f, 1f);
             yield return null;
         }
 
-        // Expand back
         elapsed = 0f;
         while (elapsed < half)
         {
             elapsed += Time.deltaTime;
-            float s = elapsed / half;
-            t.localScale = new Vector3(s, 1f, 1f);
+            t.localScale = new Vector3(elapsed / half, 1f, 1f);
             yield return null;
         }
 

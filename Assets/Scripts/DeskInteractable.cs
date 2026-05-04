@@ -1,3 +1,4 @@
+using System.Collections;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
@@ -31,6 +32,10 @@ public class DeskInteractable : MonoBehaviour
     public BlackjackGame inlineGame;
     public BlackjackUI inlineUI;
 
+    [Header("Room Objects to Hide During Blackjack")]
+    public GameObject playerObject;        // your player GameObject
+    public GameObject playerHUD;           // any room UI canvas, if you have one
+
     [Header("Interaction")]
     [Tooltip("How close the player must be (units) to trigger the prompt")]
     public float interactRadius = 2f;
@@ -40,15 +45,26 @@ public class DeskInteractable : MonoBehaviour
     private Transform _player;
     private bool _subsceneLoaded = false;
 
+    [Header("Room Objects to Hide During Blackjack")]
+    public MonoBehaviour playerController;
+
+    public static System.Action OnLeaveTable;
+
     void Start()
     {
-        // Find player — tag yours "Player" or assign directly
         var p = GameObject.FindWithTag("Player");
         if (p != null) _player = p.transform;
-
         interactPromptUI?.SetActive(false);
     }
+    void OnEnable()
+    {
+        OnLeaveTable += CloseBlackjack;
+    }
 
+    void OnDisable()
+    {
+        OnLeaveTable -= CloseBlackjack;
+    }
     void Update()
     {
         if (_player == null) return;
@@ -64,39 +80,44 @@ public class DeskInteractable : MonoBehaviour
 
     void OpenBlackjack()
     {
-        if (useAdditiveScene)
-        {
-            if (!_subsceneLoaded)
-            {
-                SceneManager.LoadSceneAsync(blackjackSceneName, LoadSceneMode.Additive);
-                _subsceneLoaded = true;
-            }
-            // Optionally disable player input here (e.g. pause 3D movement)
-        }
-        else
-        {
-            if (blackjackCanvasRoot == null)
-            { Debug.LogError("[DeskInteractable] blackjackCanvasRoot is not assigned."); return; }
+        if (playerObject != null) playerObject.SetActive(false);
+        if (interactPromptUI != null) interactPromptUI.SetActive(false);
+        if (playerHUD != null) playerHUD.SetActive(false);
 
-            blackjackCanvasRoot.SetActive(true);
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
 
-            if (inlineGame != null && inlineUI != null)
-                inlineUI.Init(inlineGame);
+        if (!_subsceneLoaded)
+        {
+            StartCoroutine(LoadBlackjackScene());
         }
+        if (playerController != null) playerController.enabled = false;
     }
 
-    /// <summary>Call this from BlackjackUI.leaveTableButton to return to 3D.</summary>
+    IEnumerator LoadBlackjackScene()
+    {
+        AsyncOperation load = SceneManager.LoadSceneAsync(blackjackSceneName, LoadSceneMode.Additive);
+        yield return new WaitUntil(() => load.isDone);
+        _subsceneLoaded = true;
+    }
+
     public void CloseBlackjack()
     {
-        if (useAdditiveScene)
-        {
-            SceneManager.UnloadSceneAsync(blackjackSceneName);
-            _subsceneLoaded = false;
-        }
-        else
-        {
-            blackjackCanvasRoot?.SetActive(false);
-        }
+        Cursor.lockState = CursorLockMode.Locked;
+        Cursor.visible = false;
+
+        if (playerObject != null) playerObject.SetActive(true);
+        if (playerHUD != null) playerHUD.SetActive(true);
+        if (interactPromptUI != null) interactPromptUI.SetActive(false);
+        if (playerController != null) playerController.enabled = true;
+        StartCoroutine(UnloadBlackjackScene());
+    }
+
+    IEnumerator UnloadBlackjackScene()
+    {
+        AsyncOperation unload = SceneManager.UnloadSceneAsync(blackjackSceneName);
+        yield return new WaitUntil(() => unload.isDone);
+        _subsceneLoaded = false;
     }
 
     void OnDrawGizmosSelected()
