@@ -14,6 +14,10 @@ public class BlackjackSceneBootstrapper : MonoBehaviour
 
     void Awake()
     {
+        Debug.Log("Test");
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
+
         if (game   == null) game   = FindObjectOfType<BlackjackGame>();
         if (ui     == null) ui     = FindObjectOfType<BlackjackUI>();
         if (dealer == null) dealer = FindObjectOfType<BlackjackDealer>();
