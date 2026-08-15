@@ -32,17 +32,45 @@ public class BlackjackUI : MonoBehaviour
     public Button nextRoundButton;
     public Button leaveTableButton;
 
+    [Header("Starting Panel")]
+    public GameObject StartingPanel;
+    public Button AcceptDeal;
+    public Button leaveTableButt;
+    public TMP_Text DealerMessage;
+
     private BlackjackGame _game;
     private int _pendingBet;
+    private bool _startingPanelShown = false;
+
+    private string[] messages = new[]
+    {
+        "A fine assortment of parts. I can offer ",
+        "Marvelous, I'll give you ",
+        "That's all? Fine, you'll get ",
+        "Your patient is quite the specimen. I can offer ",
+        "Best I can do is ",
+        "For these parts, ",
+        "I can offer ",
+        "You still think you can help him? Hilarious. I'll give you ",
+        "Putting your Medical Degree to good use I see. I can offer "
+    };
+    private string endMessage = " if you win.";
+
+    // ── Init ──────────────────────────────────────────────────────────────────
 
     public void Init(BlackjackGame game)
     {
+        // Hide everything first
+        ShowOnly(null);
+        StartingPanel?.SetActive(false);
+        resultBanner?.SetActive(false);
+
         _game = game;
         _pendingBet = game.minBet;
 
         game.OnStateChanged += HandleStateChange;
-        game.OnGameOver += HandleGameOver;
-        game.OnCardDealt += (_, __) => RefreshScores();
+        game.OnGameOver     += HandleGameOver;
+        game.OnCardDealt    += (_, __) => RefreshScores();
 
         betPlusButton?.onClick.AddListener(() => AdjustBet(+game.minBet));
         betMinusButton?.onClick.AddListener(() => AdjustBet(-game.minBet));
@@ -50,7 +78,8 @@ public class BlackjackUI : MonoBehaviour
 
         hitButton?.onClick.AddListener(game.Hit);
         standButton?.onClick.AddListener(game.Stand);
-        doubleButton?.onClick.AddListener(() => {
+        doubleButton?.onClick.AddListener(() =>
+        {
             game.DoubleDown();
             RefreshBetDisplay();
             RefreshChips();
@@ -59,24 +88,69 @@ public class BlackjackUI : MonoBehaviour
         nextRoundButton?.onClick.AddListener(OnNextRoundClicked);
         leaveTableButton?.onClick.AddListener(OnLeaveClicked);
 
-        ShowOnly(bettingPanel);
+        // Starting panel buttons wired once here
+        AcceptDeal?.onClick.AddListener(() =>
+        {
+            StartingPanel?.SetActive(false);
+            _startingPanelShown = true;
+            ShowOnly(bettingPanel);
+            RefreshBetDisplay();
+            RefreshChips();
+        });
+
+        leaveTableButt?.onClick.AddListener(() =>
+        {
+            StartingPanel?.SetActive(false);
+            DeskInteractable.OnLeaveTable?.Invoke();
+        });
+
         RefreshBetDisplay();
         RefreshChips();
+        ShowStartingPanel();
     }
-    void Start()
+
+    /// <summary>Called by DeskInteractable every time the player re-opens the table.</summary>
+    public void OnReenter()
     {
-        if (_game != null)
+        _game.SyncChips();
+        RefreshChips();
+        RefreshBetDisplay();
+
+        if (!_startingPanelShown)
         {
-            RefreshChips();
-            RefreshBetDisplay();
-            RefreshScores();
+            ShowStartingPanel();
+        }
+        else
+        {
+            resultBanner?.SetActive(false);
+            _game.ExitTable();
+            ShowOnly(bettingPanel);
         }
     }
+
+    void ShowStartingPanel()
+    {
+        ShowOnly(null);
+        resultBanner?.SetActive(false);
+        StartingPanel?.SetActive(true);
+
+        if (MoneyCollector.CollectedChips > 0)
+        {
+            AcceptDeal?.gameObject.SetActive(true);
+            DealerMessage.text = messages[Random.Range(0, messages.Length)] + $"${_game.maxBet}" + endMessage;
+        }
+        else
+        {
+            AcceptDeal?.gameObject.SetActive(false);
+            DealerMessage.text = "Come back when you have something to offer.";
+        }
+    }
+
     void OnDestroy()
     {
         if (_game == null) return;
         _game.OnStateChanged -= HandleStateChange;
-        _game.OnGameOver -= HandleGameOver;
+        _game.OnGameOver     -= HandleGameOver;
     }
 
     // ── State Handling ────────────────────────────────────────────────────────
@@ -86,22 +160,16 @@ public class BlackjackUI : MonoBehaviour
         switch (state)
         {
             case BlackjackGame.GameState.Dealing:
-                // Hide everything while cards are being dealt
                 ShowOnly(null);
                 resultBanner?.SetActive(false);
                 break;
-
             case BlackjackGame.GameState.PlayerTurn:
-                // All 4 cards are dealt — now show action buttons
                 ShowOnly(actionPanel);
                 RefreshActionButtons();
                 break;
-
             case BlackjackGame.GameState.DealerTurn:
-                // Hide action buttons while dealer plays
                 ShowOnly(null);
                 break;
-
             case BlackjackGame.GameState.Idle:
                 ShowOnly(bettingPanel);
                 resultBanner?.SetActive(false);
@@ -122,12 +190,12 @@ public class BlackjackUI : MonoBehaviour
             resultText.text = result switch
             {
                 BlackjackGame.GameResult.PlayerBlackjack => "✦ BLACKJACK! ✦",
-                BlackjackGame.GameResult.PlayerWin => "You Win!",
-                BlackjackGame.GameResult.DealerBust => "Dealer Busts — You Win!",
-                BlackjackGame.GameResult.Push => "Push — Bet Returned",
-                BlackjackGame.GameResult.PlayerBust => "Bust!",
-                BlackjackGame.GameResult.DealerWin => "Dealer Wins",
-                _ => ""
+                BlackjackGame.GameResult.PlayerWin        => "You Win!",
+                BlackjackGame.GameResult.DealerBust       => "Dealer Busts — You Win!",
+                BlackjackGame.GameResult.Push             => "Push — Bet Returned",
+                BlackjackGame.GameResult.PlayerBust       => "Bust!",
+                BlackjackGame.GameResult.DealerWin        => "Dealer Wins",
+                _                                         => ""
             };
         }
 
@@ -137,15 +205,10 @@ public class BlackjackUI : MonoBehaviour
 
     // ── Panel Control ─────────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Shows exactly one panel, hides all others.
-    /// Pass null to hide everything (e.g. during dealing or dealer turn).
-    /// Result banner is intentionally NOT controlled here.
-    /// </summary>
     void ShowOnly(GameObject panel)
     {
-        bettingPanel?.SetActive(bettingPanel == panel);
-        actionPanel?.SetActive(actionPanel == panel);
+        bettingPanel?.SetActive(bettingPanel     == panel);
+        actionPanel?.SetActive(actionPanel       == panel);
         postRoundPanel?.SetActive(postRoundPanel == panel);
     }
 
@@ -166,8 +229,8 @@ public class BlackjackUI : MonoBehaviour
         _game.dealer?.ClearTable();
         _game.PlaceBet(_pendingBet);
         _game.StartRound();
-        RefreshBetDisplay(); // add this line
-        RefreshChips();      // and this — chips deducted on deal
+        RefreshBetDisplay();
+        RefreshChips();
     }
 
     void OnNextRoundClicked()
@@ -175,8 +238,8 @@ public class BlackjackUI : MonoBehaviour
         _game.dealer?.ClearTable();
         _game.ExitTable();
         _pendingBet = Mathf.Clamp(_pendingBet, _game.minBet, _game.PlayerChips);
-        ShowOnly(bettingPanel);
         resultBanner?.SetActive(false);
+        ShowOnly(bettingPanel);
         RefreshBetDisplay();
         RefreshChips();
     }
@@ -191,7 +254,7 @@ public class BlackjackUI : MonoBehaviour
 
     void RefreshBetDisplay()
     {
-        if (betAmountText != null) betAmountText.text = $"${_pendingBet}";
+        if (betAmountText   != null) betAmountText.text   = $"${_pendingBet}";
         if (currentBetLabel != null) currentBetLabel.text = $"Bet: ${_game.CurrentBet}";
     }
 
@@ -216,7 +279,6 @@ public class BlackjackUI : MonoBehaviour
                 dealerScoreLabel.text = "";
             else if (_game.State == BlackjackGame.GameState.PlayerTurn ||
                      _game.State == BlackjackGame.GameState.Dealing)
-                // Only show the face-up card value while hole card is hidden
                 dealerScoreLabel.text = _game.DealerHand[0].BlackjackValue.ToString();
             else
                 dealerScoreLabel.text = BlackjackGame.HandValue(_game.DealerHand).ToString();

@@ -38,19 +38,22 @@ public class BlackjackDealer : MonoBehaviour
         Transform origin = isPlayer ? playerCardOrigin : dealerCardOrigin;
         if (origin == null) { Debug.LogError($"Origin is null! isPlayer:{isPlayer}"); return; }
 
-        GameObject go = Instantiate(cardPrefab, GetStartPos(), Quaternion.identity);
+        GameObject go = Instantiate(cardPrefab, GetStartPos(), origin.rotation);
         go.transform.SetParent(transform);
+        go.transform.localScale = origin.localScale;
         go.name = card.IsFaceUp ? card.SpriteName : "HoleCard";
+
+        Debug.Log($"Spawned {go.name} at {go.transform.position}, scale {go.transform.localScale}, rot {go.transform.rotation.eulerAngles}");
 
         var sr = go.GetComponent<SpriteRenderer>();
         if (sr != null && spriteLibrary != null)
             sr.sprite = spriteLibrary.GetSprite(card);
+        else
+            Debug.LogError($"SpriteRenderer null: {sr == null}, Library null: {spriteLibrary == null}");
 
-        // Add to the correct hand list
         if (isPlayer) _playerCards.Add(go);
         else _dealerCards.Add(go);
 
-        // Recenter the whole hand now that a new card was added
         RecenterHand(isPlayer);
     }
 
@@ -95,18 +98,19 @@ public class BlackjackDealer : MonoBehaviour
         int count = hand.Count;
         if (count == 0) return;
 
-        // Total width spans between first and last card center
         float totalWidth = (count - 1) * cardSpacing;
-        float leftEdge = origin.position.x - totalWidth / 2f;
 
         for (int i = 0; i < count; i++)
         {
             if (hand[i] == null) continue;
-            Vector3 target = new Vector3(
-                leftEdge + i * cardSpacing,
-                origin.position.y,
-                -1f
-            );
+
+            hand[i].transform.rotation = origin.rotation;
+            hand[i].transform.localScale = origin.localScale;
+
+            // Spread along origin's local RIGHT axis, centered on origin
+            float offset = -totalWidth / 2f + i * cardSpacing;
+            Vector3 target = origin.position + origin.right * offset;
+
             StartCoroutine(MoveCard(hand[i].transform, target, dealDuration));
         }
     }
@@ -116,8 +120,8 @@ public class BlackjackDealer : MonoBehaviour
     Vector3 GetStartPos()
     {
         if (deckPosition != null)
-            return new Vector3(deckPosition.position.x, deckPosition.position.y, -1f);
-        return new Vector3(10f, 5f, -1f);
+            return new Vector3(deckPosition.position.x, deckPosition.position.y, deckPosition.position.z);
+        return new Vector3(10f, 0f, 0f); // fallback — adjust to match your table
     }
 
     // ── Animations ────────────────────────────────────────────────────────────

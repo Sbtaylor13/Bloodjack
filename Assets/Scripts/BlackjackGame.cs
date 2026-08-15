@@ -13,7 +13,7 @@ public class BlackjackGame : MonoBehaviour
 
     [Header("Settings")]
     public int numberOfDecks = 2;
-    public int playerStartChips = 500;
+    public int playerStartChips = 0;
     public int minBet = 10;
     public int maxBet = 500;
     public float dealDelay = 0.4f;
@@ -33,7 +33,19 @@ public class BlackjackGame : MonoBehaviour
     public System.Action OnHandsDealt;
     public System.Action<Card, bool> OnCardDealt;
 
-    void Awake() => PlayerChips = playerStartChips;
+    void Awake()
+    {
+        PlayerChips = MoneyCollector.CollectedChips;
+    }
+
+    /// <summary>
+    /// Re-reads CollectedChips in case the player gathered more money cubes
+    /// after their first table visit. Only adds new chips, never reduces.
+    /// </summary>
+    public void SyncChips()
+    {
+        PlayerChips = MoneyCollector.CollectedChips;
+    }
 
     // ── Public API ────────────────────────────────────────────────────────────
 
@@ -51,6 +63,7 @@ public class BlackjackGame : MonoBehaviour
         PlayerChips -= CurrentBet;
         PlayerHand.Clear();
         DealerHand.Clear();
+        dealer?.ClearTable();
 
         EnsureDeckHasCards();
         StartCoroutine(DealOpeningHands());
@@ -81,26 +94,24 @@ public class BlackjackGame : MonoBehaviour
 
     public void ExitTable()
     {
+        MoneyCollector.CollectedChips = PlayerChips;
         State = GameState.Idle;
         CurrentBet = 0;
         PlayerHand.Clear();
         DealerHand.Clear();
-        // Do NOT call OnStateChanged here — UI handles its own reset
     }
 
     // ── Dealing ───────────────────────────────────────────────────────────────
 
     IEnumerator DealOpeningHands()
     {
-        // Use Dealing state — UI shows nothing during this phase
         SetState(GameState.Dealing);
 
-        yield return StartCoroutine(DealCardTo(PlayerHand, faceUp: true, isPlayer: true));
-        yield return StartCoroutine(DealCardTo(DealerHand, faceUp: true, isPlayer: false));
-        yield return StartCoroutine(DealCardTo(PlayerHand, faceUp: true, isPlayer: true));
+        yield return StartCoroutine(DealCardTo(PlayerHand, faceUp: true,  isPlayer: true));
+        yield return StartCoroutine(DealCardTo(DealerHand, faceUp: true,  isPlayer: false));
+        yield return StartCoroutine(DealCardTo(PlayerHand, faceUp: true,  isPlayer: true));
         yield return StartCoroutine(DealCardTo(DealerHand, faceUp: false, isPlayer: false));
 
-        // All 4 cards dealt — NOW check state
         OnHandsDealt?.Invoke();
 
         if (HandValue(PlayerHand) == 21)
@@ -110,7 +121,6 @@ public class BlackjackGame : MonoBehaviour
         }
         else
         {
-            // Only NOW tell the UI the player can act
             SetState(GameState.PlayerTurn);
         }
     }
@@ -118,7 +128,6 @@ public class BlackjackGame : MonoBehaviour
     IEnumerator PlayerHit()
     {
         yield return StartCoroutine(DealCardTo(PlayerHand, faceUp: true, isPlayer: true));
-
         int val = HandValue(PlayerHand);
         if (val > 21)
         {
@@ -126,15 +135,12 @@ public class BlackjackGame : MonoBehaviour
             EndGame(GameResult.PlayerBust);
         }
         else if (val == 21)
-        {
             yield return StartCoroutine(DealerPlay());
-        }
     }
 
     IEnumerator PlayerDoubleDown()
     {
         yield return StartCoroutine(DealCardTo(PlayerHand, faceUp: true, isPlayer: true));
-
         int val = HandValue(PlayerHand);
         if (val > 21)
         {
@@ -142,15 +148,12 @@ public class BlackjackGame : MonoBehaviour
             EndGame(GameResult.PlayerBust);
         }
         else
-        {
             yield return StartCoroutine(DealerPlay());
-        }
     }
 
     IEnumerator DealerPlay()
     {
         SetState(GameState.DealerTurn);
-
         yield return StartCoroutine(RevealHoleCard());
         yield return new WaitForSeconds(0.5f);
 
@@ -163,10 +166,10 @@ public class BlackjackGame : MonoBehaviour
         int playerVal = HandValue(PlayerHand);
         int dealerVal = HandValue(DealerHand);
 
-        if (dealerVal > 21) EndGame(GameResult.DealerBust);
+        if      (dealerVal > 21)        EndGame(GameResult.DealerBust);
         else if (playerVal > dealerVal) EndGame(GameResult.PlayerWin);
         else if (dealerVal > playerVal) EndGame(GameResult.DealerWin);
-        else EndGame(GameResult.Push);
+        else                            EndGame(GameResult.Push);
     }
 
     IEnumerator RevealHoleCard()
@@ -185,10 +188,8 @@ public class BlackjackGame : MonoBehaviour
         Card card = DrawCard();
         card.IsFaceUp = faceUp;
         hand.Add(card);
-
         dealer?.AnimateDeal(card, isPlayer, hand.Count - 1);
         OnCardDealt?.Invoke(card, isPlayer);
-
         yield return new WaitForSeconds(dealDelay);
     }
 
@@ -199,6 +200,7 @@ public class BlackjackGame : MonoBehaviour
         LastResult = result;
         int payout = CalculatePayout(result);
         PlayerChips += payout;
+        MoneyCollector.CollectedChips = PlayerChips;
         SetState(GameState.GameOver);
         OnGameOver?.Invoke(result, payout);
     }
@@ -206,10 +208,10 @@ public class BlackjackGame : MonoBehaviour
     int CalculatePayout(GameResult result) => result switch
     {
         GameResult.PlayerBlackjack => Mathf.RoundToInt(CurrentBet * 2.5f),
-        GameResult.PlayerWin => CurrentBet * 2,
-        GameResult.DealerBust => CurrentBet * 2,
-        GameResult.Push => CurrentBet,
-        _ => 0,
+        GameResult.PlayerWin       => CurrentBet * 2,
+        GameResult.DealerBust      => CurrentBet * 2,
+        GameResult.Push            => CurrentBet,
+        _                          => 0,
     };
 
     // ── Hand Value ────────────────────────────────────────────────────────────
@@ -217,11 +219,7 @@ public class BlackjackGame : MonoBehaviour
     public static int HandValue(List<Card> hand)
     {
         int value = 0, aces = 0;
-        foreach (var card in hand)
-        {
-            value += card.BlackjackValue;
-            if (card.Rank == CardRank.Ace) aces++;
-        }
+        foreach (var card in hand) { value += card.BlackjackValue; if (card.Rank == CardRank.Ace) aces++; }
         while (value > 21 && aces > 0) { value -= 10; aces--; }
         return value;
     }
