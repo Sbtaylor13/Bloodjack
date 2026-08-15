@@ -72,9 +72,9 @@ namespace StarterAssets
 		private StarterAssetsInputs _input;
 		private GameObject _mainCamera;
 
-		private const float _threshold = 0.01f;
+        private const float _threshold = 0.0f;
 
-		private bool IsCurrentDeviceMouse
+        private bool IsCurrentDeviceMouse
 		{
 			get
 			{
